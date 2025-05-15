@@ -1,0 +1,117 @@
+services:
+  minio:
+    image: minio/minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ENDPOINT: http://localhost:9001
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    volumes:
+      - minio_data:/data
+
+  mc:
+    image: minio/mc
+    container_name: mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5 &&
+      mc alias set local http://minio:9000 minio minio123 &&
+      mc mb local/bronze || true &&
+      mc mb local/silver || true &&
+      mc mb local/gold || true &&
+      echo '[INFO] Buckets criados com sucesso.'
+      "
+
+  spark:
+    build:
+      context: .
+    container_name: spark
+    environment:
+      URL_API: https://api.openbrewerydb.org/v1/breweries
+      MINIO_ENDPOINT_SPARK: http://minio:9000
+      MINIO_ACCESS_KEY: minio
+      MINIO_SECRET_KEY: minio123
+      BUCKET_BRONZE: bronze
+      BUCKET_SILVER: silver
+      BUCKET_GOLD: gold
+    volumes:
+      - ./src:/opt/bitnami/spark/app/src
+    depends_on:
+      - minio
+    command: tail -f /dev/null
+
+  postgres:
+    image: postgres:13
+    container_name: postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  airflow-init:
+    image: apache/airflow:2.10.5-python3.9
+    container_name: airflow-init
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    entrypoint: >
+      bash -c "airflow db init &&
+               airflow users create -u admin -p admin -r Admin -e admin@example.com -f admin -l user"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  airflow-webserver:
+    image: apache/airflow:2.10.5-python3.9
+    container_name: airflow-webserver
+    restart: always
+    depends_on:
+      - airflow-init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'False'
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      PYTHONPATH: "/opt/airflow"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8080:8080"
+    command: webserver
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.5-python3.9
+    container_name: airflow-scheduler
+    restart: always
+    depends_on:
+      - airflow-webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./src:/opt/airflow/src
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: scheduler
+
+volumes:
+  minio_data:
+  postgres_data:

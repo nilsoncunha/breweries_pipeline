@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv/
+*.egg-info/
+*.log
+
+# Dados e outputs
+data/
+*.parquet
+*.json
+
+# Spark / Delta
+_metastore/
+_delta_log/
+*.crc
+
+# Airflow
+airflow/airflow.db
+airflow/airflow-webserver.pid
+airflow/logs/
+airflow/__pycache__/
+
+# Docker
+*.bak
+*.old
+docker/spark/__pycache__/
+mc/
+
+# VSCode / IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
